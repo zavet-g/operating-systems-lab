@@ -186,12 +186,23 @@ void yellow_process(int pipe_to_green[2]) {
     printf("[PID=%d, PPID=%d] %s process started\n",
            getpid(), getppid(), color_names[YELLOW]);
 
-    /* Открываем семафоры */
-    sem_orange = sem_open(SEM_ORANGE, 0);
-    sem_yellow = sem_open(SEM_YELLOW, 0);
+    /* Открываем семафоры с повторными попытками */
+    int retry_count = 0;
+    while (retry_count < 10) {
+        sem_orange = sem_open(SEM_ORANGE, 0);
+        sem_yellow = sem_open(SEM_YELLOW, 0);
+
+        if (sem_orange != SEM_FAILED && sem_yellow != SEM_FAILED) {
+            break; /* Успешно открыли */
+        }
+
+        /* Если не удалось, ждем и пробуем снова */
+        usleep(100000); /* 100ms */
+        retry_count++;
+    }
 
     if (sem_orange == SEM_FAILED || sem_yellow == SEM_FAILED) {
-        perror("sem_open in yellow");
+        perror("sem_open in yellow after retries");
         close(pipe_to_green[1]);
         return;
     }

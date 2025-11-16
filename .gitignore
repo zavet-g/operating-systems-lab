@@ -1,0 +1,19 @@
+# Исполняемые файлы
+os-lab-variant29
+variant29
+
+# Объектные файлы
+*.o
+*.out
+
+# Результаты работы программы
+even_processes.txt
+/tmp/shared_pid_29.txt
+
+# Системные файлы
+.DS_Store
+*.swp
+*~
+
+# Временные файлы
+*.tmp

@@ -3,9 +3,17 @@
 
 CC = gcc
 CFLAGS = -Wall -Wextra
-# На macOS не нужен -lrt, на Linux добавить -lrt
-LDFLAGS = -lpthread
-TARGET = variant29
+
+# Автоопределение ОС
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Linux)
+    LDFLAGS = -lrt -lpthread
+endif
+ifeq ($(UNAME_S),Darwin)
+    LDFLAGS = -lpthread
+endif
+
+TARGET = os-lab-variant29
 SRC = main.c
 
 all: $(TARGET)
