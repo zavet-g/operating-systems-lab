@@ -56,6 +56,7 @@ int main() {
 
     printf("[PID=%d, PPID=%d] Процесс %s запущен\n",
            getpid(), getppid(), color_names[ORANGE]);
+    fflush(stdout);
 
     /* Удаляем старые семафоры если они существуют */
     sem_unlink(SEM_ORANGE);
@@ -68,6 +69,7 @@ int main() {
     }
 
     /* Порождаем первого потомка - ЖЕЛТЫЙ процесс */
+    fflush(stdout);
     pid = fork();
     if (pid < 0) {
         perror("Ошибка fork для жёлтого");
@@ -80,6 +82,7 @@ int main() {
     }
 
     /* Порождаем второго потомка - ГОЛУБОЙ процесс */
+    fflush(stdout);
     pid = fork();
     if (pid < 0) {
         perror("Ошибка fork для голубого #1");
@@ -94,6 +97,7 @@ int main() {
     }
 
     /* Порождаем третьего потомка - ГОЛУБОЙ процесс */
+    fflush(stdout);
     pid = fork();
     if (pid < 0) {
         perror("Ошибка fork для голубого #2");
@@ -190,6 +194,7 @@ void yellow_process(int pipe_to_green[2]) {
 
     printf("[PID=%d, PPID=%d] Процесс %s запущен\n",
            getpid(), getppid(), color_names[YELLOW]);
+    fflush(stdout);
 
     /* Открываем семафоры с повторными попытками */
     int retry_count = 0;
@@ -213,6 +218,7 @@ void yellow_process(int pipe_to_green[2]) {
     }
 
     /* Порождаем ЗЕЛЕНЫЙ процесс */
+    fflush(stdout);
     pid = fork();
     if (pid < 0) {
         perror("Ошибка fork для зелёного");
@@ -231,6 +237,7 @@ void yellow_process(int pipe_to_green[2]) {
     }
 
     /* Порождаем ГОЛУБОЙ процесс */
+    fflush(stdout);
     pid = fork();
     if (pid < 0) {
         perror("Ошибка fork для голубого от жёлтого");
@@ -311,6 +318,7 @@ void green_process(int pipe_from_yellow[2]) {
 
     printf("[PID=%d, PPID=%d] Процесс %s запущен\n",
            getpid(), getppid(), color_names[GREEN]);
+    fflush(stdout);
 
     /* Открываем файл для записи */
     fd = open(OUTPUT_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0666);
@@ -340,6 +348,7 @@ void green_process(int pipe_from_yellow[2]) {
 void blue_process(void) {
     printf("[PID=%d, PPID=%d] Процесс %s запущен\n",
            getpid(), getppid(), color_names[BLUE]);
+    fflush(stdout);
 
     /* Голубые процессы только выводят информацию о себе */
     usleep(500000); /* 0.5 секунды для наглядности */
