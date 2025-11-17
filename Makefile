@@ -32,8 +32,8 @@ run: $(TARGET)
 
 test: $(TARGET)
 	@echo "=== Тестовый запуск программы ==="
-	@echo "Используется список процессов из ps -e"
-	@ps -e | ./$(TARGET)
+	@echo "Используется список процессов из ps"
+	@ps -eo pid,comm | tail -n +2 | ./$(TARGET)
 	@echo ""
 	@echo "=== Результаты записаны в файл even_processes.txt ==="
 	@cat even_processes.txt
