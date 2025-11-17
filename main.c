@@ -70,20 +70,6 @@ int main() {
         exit(1);
     }
 
-    /* Создаем ЗЕЛЕНЫЙ процесс ПЕРВЫМ */
-    fflush(stdout);
-    pid = fork();
-    if (pid < 0) {
-        perror("Ошибка fork для зелёного");
-        exit(1);
-    } else if (pid == 0) {
-        /* Зеленый процесс */
-        close(STDIN_FILENO);
-        close(pipe_yellow_green[1]); /* Закрываем запись */
-        green_process(pipe_yellow_green);
-        exit(0);
-    }
-
     /* Создаем ЖЕЛТЫЙ процесс */
     fflush(stdout);
     pid = fork();
@@ -229,6 +215,25 @@ void yellow_process(int pipe_to_green[2]) {
         perror("Ошибка открытия семафоров в жёлтом");
         close(pipe_to_green[1]);
         return;
+    }
+
+    /* Создаем ЗЕЛЕНЫЙ процесс как потомок желтого */
+    fflush(stdout);
+    pid = fork();
+    if (pid < 0) {
+        perror("Ошибка fork для зелёного от жёлтого");
+        close(pipe_to_green[1]);
+        sem_close(sem_orange);
+        sem_close(sem_yellow);
+        return;
+    } else if (pid == 0) {
+        /* Зеленый процесс */
+        close(STDIN_FILENO);
+        close(pipe_to_green[1]); /* Закрываем запись */
+        sem_close(sem_orange);
+        sem_close(sem_yellow);
+        green_process(pipe_to_green);
+        exit(0);
     }
 
     printf("[PID=%d, PPID=%d] %s: Чтение списка процессов из stdin...\n",
