@@ -312,7 +312,6 @@ void yellow_process(int pipe_to_green[2]) {
     sem_close(sem_yellow);
 
     /* Ждем завершения дочерних процессов (Зеленого и Голубого) */
-    int status;
     wait(NULL);
     wait(NULL);
 
