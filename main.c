@@ -64,23 +64,27 @@ int main() {
     sem_unlink(SEM_ORANGE);
     sem_unlink(SEM_YELLOW);
 
-    /* Создаём НОВЫЕ семафоры ДО fork'ов с O_EXCL для гарантии */
-    sem_t *sem_orange = sem_open(SEM_ORANGE, O_CREAT | O_EXCL, 0666, 0);
-    sem_t *sem_yellow = sem_open(SEM_YELLOW, O_CREAT | O_EXCL, 0666, 0);
-    if (sem_orange == SEM_FAILED || sem_yellow == SEM_FAILED) {
-        perror("Ошибка создания семафоров в main");
-        exit(1);
-    }
-
-    /* НЕ закрываем семафоры - они нужны для синхронизации с дочерними процессами */
-
-    /* Создаем pipe для связи желтого и зеленого */
+    /* Создаем pipe ДО fork */
     if (pipe(pipe_yellow_green) < 0) {
         perror("Ошибка создания pipe");
         exit(1);
     }
 
-    /* Порождаем первого потомка - ЖЕЛТЫЙ процесс */
+    /* Создаем ЗЕЛЕНЫЙ процесс ПЕРВЫМ */
+    fflush(stdout);
+    pid = fork();
+    if (pid < 0) {
+        perror("Ошибка fork для зелёного");
+        exit(1);
+    } else if (pid == 0) {
+        /* Зеленый процесс */
+        close(STDIN_FILENO);
+        close(pipe_yellow_green[1]); /* Закрываем запись */
+        green_process(pipe_yellow_green);
+        exit(0);
+    }
+
+    /* Создаем ЖЕЛТЫЙ процесс */
     fflush(stdout);
     pid = fork();
     if (pid < 0) {
@@ -88,65 +92,56 @@ int main() {
         exit(1);
     } else if (pid == 0) {
         /* Желтый процесс */
-        close(pipe_yellow_green[0]); /* Закрываем чтение из pipe */
+        close(pipe_yellow_green[0]); /* Закрываем чтение */
         yellow_process(pipe_yellow_green);
         exit(0);
     }
 
-    /* Порождаем второго потомка - ГОЛУБОЙ процесс */
-    fflush(stdout);
-    pid = fork();
-    if (pid < 0) {
-        perror("Ошибка fork для голубого #1");
-        exit(1);
-    } else if (pid == 0) {
-        /* Голубой процесс */
-        close(STDIN_FILENO); /* Голубому stdin не нужен */
-        close(pipe_yellow_green[0]);
-        close(pipe_yellow_green[1]);
-        blue_process();
-        exit(0);
-    }
-
-    /* Порождаем третьего потомка - ГОЛУБОЙ процесс */
-    fflush(stdout);
-    pid = fork();
-    if (pid < 0) {
-        perror("Ошибка fork для голубого #2");
-        exit(1);
-    } else if (pid == 0) {
-        /* Голубой процесс */
-        close(STDIN_FILENO); /* Голубому stdin не нужен */
-        close(pipe_yellow_green[0]);
-        close(pipe_yellow_green[1]);
-        blue_process();
-        exit(0);
+    /* Создаем ГОЛУБЫЕ процессы */
+    for (int i = 0; i < 2; i++) {
+        fflush(stdout);
+        pid = fork();
+        if (pid < 0) {
+            perror("Ошибка fork для голубого");
+            exit(1);
+        } else if (pid == 0) {
+            /* Голубой процесс */
+            close(STDIN_FILENO);
+            close(pipe_yellow_green[0]);
+            close(pipe_yellow_green[1]);
+            blue_process();
+            exit(0);
+        }
     }
 
     /* Оранжевый процесс закрывает pipe (он ему не нужен) */
     close(pipe_yellow_green[0]);
     close(pipe_yellow_green[1]);
-
-    /* Оранжевый закрывает stdin ПОСЛЕ всех fork'ов, чтобы только жёлтый читал из него */
     close(STDIN_FILENO);
+
+    /* Создаем семафоры в ОРАНЖЕВОМ процессе ПОСЛЕ всех fork'ов */
+    sem_t *sem_orange = sem_open(SEM_ORANGE, O_CREAT | O_EXCL, 0666, 0);
+    sem_t *sem_yellow = sem_open(SEM_YELLOW, O_CREAT | O_EXCL, 0666, 0);
+    if (sem_orange == SEM_FAILED || sem_yellow == SEM_FAILED) {
+        perror("Ошибка создания семафоров");
+        exit(1);
+    }
 
     /* Выполняем действия оранжевого процесса */
     orange_process();
 
     /* Ожидаем завершения всех дочерних процессов */
     int status;
-    pid_t w;
-    while ((w = wait(&status)) > 0) {
-        /* Можно логировать завершение процессов */
-    }
-    if (w == -1 && errno != ECHILD) {
-        perror("wait");
+    while (wait(&status) > 0 || errno != ECHILD) {
+        /* wait until all children are done */
     }
 
     printf("[PID=%d, PPID=%d] Процесс %s завершён\n",
            getpid(), getppid(), color_names[ORANGE]);
 
     /* Очистка семафоров */
+    sem_close(sem_orange);
+    sem_close(sem_yellow);
     sem_unlink(SEM_ORANGE);
     sem_unlink(SEM_YELLOW);
 
@@ -178,26 +173,27 @@ void orange_process(void) {
         /* Ждем сигнала от желтого */
         sem_wait(sem_orange);
 
-        /* Читаем значение из разделяемой памяти (упрощенно через файл) */
-        FILE *f = fopen("/tmp/shared_pid_29.txt", "r");
+        /* Используем временный файл с уникальным именем */
+        char filename[64];
+        snprintf(filename, sizeof(filename), "/tmp/shared_pid_29_%d.txt", getpid());
+
+        FILE *f = fopen(filename, "r");
         if (f) {
             if (fscanf(f, "%d", &pid_value) == 1) {
                 if (pid_value == -1) {
                     fclose(f);
-                    sem_post(sem_yellow); /* Подтверждаем получение сигнала завершения */
+                    remove(filename); /* Удаляем временный файл */
+                    sem_post(sem_yellow);
                     break; /* Конец передачи */
                 }
                 total_sum += pid_value;
                 count++;
                 printf("[PID=%d, PPID=%d] %s: Получен PID=%d, текущая сумма=%d\n",
                        getpid(), getppid(), color_names[ORANGE], pid_value, total_sum);
-            } else {
-                fprintf(stderr, "[PID=%d] %s: Не удалось прочитать PID из файла\n",
-                        getpid(), color_names[ORANGE]);
+                fflush(stdout);
             }
             fclose(f);
-        } else {
-            perror("fopen read pid");
+            remove(filename); /* Удаляем временный файл после чтения */
         }
 
         /* Сигнализируем желтому, что приняли */
@@ -222,7 +218,10 @@ void yellow_process(int pipe_to_green[2]) {
            getpid(), getppid(), color_names[YELLOW]);
     fflush(stdout);
 
-    /* Открываем уже созданные семафоры (созданы в main до fork) */
+    /* Даем время оранжевому создать семафоры и инициализироваться */
+    usleep(500000); /* 500ms */
+
+    /* Открываем семафоры */
     sem_orange = sem_open(SEM_ORANGE, 0);
     sem_yellow = sem_open(SEM_YELLOW, 0);
 
@@ -231,9 +230,6 @@ void yellow_process(int pipe_to_green[2]) {
         close(pipe_to_green[1]);
         return;
     }
-
-    /* Даём время оранжевому процессу открыть семафоры */
-    usleep(100000); /* 100ms */
 
     printf("[PID=%d, PPID=%d] %s: Чтение списка процессов из stdin...\n",
            getpid(), getppid(), color_names[YELLOW]);
@@ -245,33 +241,29 @@ void yellow_process(int pipe_to_green[2]) {
         char name[MAX_LINE];
 
         /* Пытаемся распарсить строку формата "PID NAME" или вывод ps */
-        if (sscanf(line, "%d %s", &pid_val, name) == 2) {
+        if (sscanf(line, "%d %255s", &pid_val, name) >= 1) {
             /* Проверяем, четный ли PID */
-            if (pid_val % 2 == 0) {
+            if (pid_val > 0 && pid_val % 2 == 0) {
                 printf("[PID=%d, PPID=%d] %s: Найден чётный PID=%d (%s)\n",
                        getpid(), getppid(), color_names[YELLOW], pid_val, name);
                 fflush(stdout);
                 even_count++;
 
-                /* Передаем PID оранжевому через семафоры */
-                FILE *f = fopen("/tmp/shared_pid_29.txt", "w");
+                /* Используем уникальное имя файла для каждой передачи */
+                char filename[64];
+                snprintf(filename, sizeof(filename), "/tmp/shared_pid_29_%d.txt", getppid());
+
+                FILE *f = fopen(filename, "w");
                 if (f) {
                     fprintf(f, "%d\n", pid_val);
-                    fflush(f);
-                    fsync(fileno(f)); /* Гарантируем запись на диск */
                     fclose(f);
-                } else {
-                    perror("fopen write pid");
-                }
-                sem_post(sem_orange); /* Сигнализируем оранжевому */
-                sem_wait(sem_yellow); /* Ждем подтверждения */
 
-                /* Передаем имя зеленому через pipe */
-                ssize_t wn = write(pipe_to_green[1], name, strlen(name));
-                if (wn < 0) {
-                    perror("write name to pipe");
+                    sem_post(sem_orange);
+                    sem_wait(sem_yellow);
+
+                    /* Передаем имя зеленому */
+                    dprintf(pipe_to_green[1], "%s\n", name);
                 }
-                write(pipe_to_green[1], "\n", 1);
             }
         }
     }
@@ -280,69 +272,44 @@ void yellow_process(int pipe_to_green[2]) {
            getpid(), getppid(), color_names[YELLOW]);
 
     /* Сигнализируем конец передачи оранжевому */
-    FILE *f = fopen("/tmp/shared_pid_29.txt", "w");
+    char filename[64];
+    snprintf(filename, sizeof(filename), "/tmp/shared_pid_29_%d.txt", getppid());
+
+    FILE *f = fopen(filename, "w");
     if (f) {
         fprintf(f, "-1\n");
-        fflush(f);
-        fsync(fileno(f)); /* Гарантируем запись на диск */
         fclose(f);
-    } else {
-        perror("fopen write pid (-1)");
-    }
-    sem_post(sem_orange);
-    sem_wait(sem_yellow); /* Ждём подтверждения получения сигнала завершения */
 
-    /* ВАЖНО: Порождаем ЗЕЛЕНЫЙ процесс ДО закрытия pipe */
-    fflush(stdout);
-    pid = fork();
-    if (pid < 0) {
-        perror("Ошибка fork для зелёного");
-    } else if (pid == 0) {
-        /* Зеленый процесс */
-        close(STDIN_FILENO); /* Зелёному stdin не нужен */
-        sem_close(sem_orange);
-        sem_close(sem_yellow);
-        close(pipe_to_green[1]); /* Зелёный закрывает запись */
-        green_process(pipe_to_green);
-        exit(0);
+        sem_post(sem_orange);
+        sem_wait(sem_yellow);
     }
 
-    /* Закрываем pipe в жёлтом - это даст сигнал зелёному, что данных больше не будет */
+    /* Закрываем pipe для записи (сигнал EOF для зеленого) */
     close(pipe_to_green[1]);
 
-    /* Порождаем ГОЛУБОЙ процесс */
+    /* Создаем ГОЛУБОЙ процесс как потомок желтого */
     fflush(stdout);
     pid = fork();
     if (pid < 0) {
         perror("Ошибка fork для голубого от жёлтого");
     } else if (pid == 0) {
         /* Голубой процесс */
-        close(STDIN_FILENO); /* Голубому stdin не нужен */
+        close(STDIN_FILENO);
         sem_close(sem_orange);
         sem_close(sem_yellow);
-        close(pipe_to_green[0]); /* Голубому pipe не нужен */
         blue_process();
         exit(0);
     }
 
-    /* Закрываем чтение из pipe в жёлтом */
-    close(pipe_to_green[0]);
+    /* Закрываем семафоры */
+    sem_close(sem_orange);
+    sem_close(sem_yellow);
 
-    /* Ожидаем завершения дочерних процессов */
-    int status;
-    pid_t w;
-    while ((w = wait(&status)) > 0) {
-        /* Можно логировать завершение процессов */
-    }
-    if (w == -1 && errno != ECHILD) {
-        perror("wait в жёлтом");
-    }
+    /* Ожидаем завершения голубого */
+    wait(NULL);
 
     printf("[PID=%d, PPID=%d] Процесс %s завершён (обработано %d чётных PID)\n",
            getpid(), getppid(), color_names[YELLOW], even_count);
-
-    sem_close(sem_orange);
-    sem_close(sem_yellow);
 }
 
 /* Зеленый процесс */
@@ -368,7 +335,7 @@ void green_process(int pipe_from_yellow[2]) {
            getpid(), getppid(), color_names[GREEN], OUTPUT_FILE);
 
     /* Читаем имена процессов из pipe и записываем в файл */
-    while ((bytes_read = read(pipe_from_yellow[0], buffer, sizeof(buffer))) > 0) {
+    while ((bytes_read = read(pipe_from_yellow[0], buffer, sizeof(buffer)-1)) > 0) {
         write(fd, buffer, bytes_read);
         total_bytes += bytes_read;
     }
